@@ -15,7 +15,7 @@ import sys
 import time
 
 from configparser import ConfigParser
-from dateutil import tz
+from dateutil import tz #pip install python-dateutil
 from queue import Queue
 from threading import Thread
 
@@ -76,14 +76,38 @@ def enumerate_usb(sensor, start_time=None):
                     #print(device_info)
                     
 
+## -- New INI List Loader -- ##
+def iniArray(inifilepath, iniSection):
+    if os.path.exists(inifilepath) == False:
+        print("File does not exist: " + inifilepath)
+        return ""
+    with open(inifilepath) as fp:
+        line = "initialize"
+        listOut = []
+        boolCollect = False
+        while line:
+            line = fp.readline()
+            if ("[" + iniSection + "]") in line:
+                boolCollect = True
+            elif line[0:1] =="[":
+                boolCollect = False
+            elif boolCollect == True:
+                if "=" in line:
+                    valuestart = line.find("=")
+                    listOut.append(line[valuestart +1:-1])
+        return listOut
+
 ## -- Live Response (collect/remediate) -- ##
 def go_live(sensor):
     start_time = time.time()
-    timeout = 604800 # seven days
+    timeout = 1 # seven days
     current_day = 0
     lr_session = None
     if sensor.status == 'Offline':
-        LOGGER.info("Waiting for sensor to come online..")
+        #LOGGER.info("Waiting for sensor to come online..")
+        print("offline")
+        os._quit()
+        print("Should have exited")
     while time.time() - start_time < timeout:
         try:
             lr_session = sensor.lr_session()
@@ -91,6 +115,7 @@ def go_live(sensor):
             break
         except TimeoutError:
             elapsed_time = time.time() - start_time
+            print("problems")
             if current_day != elapsed_time // 86400:
                 current_day+=1
                 LOGGER.info("24 hours of timeout when polling for LR session")
@@ -414,7 +439,10 @@ def sensor_search(profiles, sensor_name):
         handle_proxy(profile)
         cb = CbResponseAPI(profile=profile)
         try:
-            sensor = cb.select(Sensor).where("hostname:{}".format(sensor_name)).one()
+            if sensor_name.replace(".","").isnumeric() and sensor_name.count(".") == 4:
+                sensor = cb.select(Sensor).where("ip:{}".format(sensor_name)).one()
+            else:
+                sensor = cb.select(Sensor).where("hostname:{}".format(sensor_name)).one()
             cb_finds.append((sensor, profile))
             LOGGER.info("Found a sensor by this name in {} environment".format(profile))
         except TypeError as e:
@@ -578,6 +606,7 @@ def main():
     parser_collect = subparsers.add_parser('collect', help='perform LR collection tasks on a host')
     parser_collect.add_argument('sensor', help="the hostname/sensor to collect from")
     parser_collect.add_argument('-f', '--filepath', action='store', help='collect file')
+    parser_collect.add_argument('-fl', '--folder', action='store', help='collect folder listing')
     parser_collect.add_argument('-c', '--command-exec', action='store', help='command to execute')
     parser_collect.add_argument('-p', '--process-list', action='store_true', 
                                 help='show processes running on sensor')
@@ -718,6 +747,7 @@ def main():
     if args.command == 'enumerate_usb':
         enumerate_usb(sensor, args.start_time)
 
+    
 
     # lerc install arguments can differ by company/environment
     # same lazy hack to define in cb config
@@ -741,12 +771,40 @@ def main():
         # start a cb lr session
         lr_session = hyper_lr.go_live()
 
+        #Attempt to get folder path
+        if args.folder:
+            folderPath = args.folder
+            print("\n\t{}".format(folderPath))
+            results = lr_session.list_directory(folderPath)
+            localfname = "perflog.csv" #args.sensor + ".csv"
+            with open(localfname,'a+') as f:
+                for result in results:
+                    #print (type(result))
+                    #print (result)
+                    #print("\t-------------------------")
+                    filetype = ""
+                    creationtime = ""
+                    filename = ""
+                    if 'DIRECTORY' in result['attributes']:
+                        filetype = "Directory"
+                    else:
+                        filetype = "File"
+                    creationtime = str(result['create_time'])
+                    filename = result['filename']
+                    lastaccesstime = str(result['last_access_time'])
+                    lastwritetime = str(result['last_write_time'])
+                    size = str(result['size'])
+                    lineout = filetype + "|" + creationtime + "|" + filename + "|" + lastaccesstime + "|" + lastwritetime + "|" + size + "|" + args.sensor
+                    lineout = "\"" + lineout.replace("|", "\",\"") + "\"\n"
+                    f.write(lineout)
+
+                return False                
         if args.multi_collect:
             filepaths = regpaths = full_collect = None
             config = ConfigParser()
             config.read(args.multi_collect)
             try:
-                filepaths = config.items("files")
+                filepaths = iniArray(args.multi_collect, "files") #use new ini loader to be able to get files with special characters
             except:
                 filepaths = []
             try:
@@ -775,7 +833,7 @@ def main():
             if filepaths is not None:
                 for filepath in filepaths:
                     try:
-                        hyper_lr.getFile_with_timeout(filepath[1])
+                        hyper_lr.getFile_with_timeout(filepath)
                     except Exception as e:
                         print("[!] Error: {}".format(str(e)))
             if full_collect == 'True':
@@ -807,10 +865,13 @@ def main():
 
         elif args.command_exec:
             print("executing '{}' on {}".format(args.command_exec, args.sensor))
-            result = lr_session.create_process(args.command_exec, wait_timeout=60, wait_for_output=True)
+            result = lr_session.create_process(args.command_exec, wait_timeout=500, wait_for_output=True)
             print("\n-------------------------")
-            result = result.decode('utf-8')
-            print(result + "\n-------------------------")
+            #result = result.decode('utf-16')
+            #print(result + "\n-------------------------")
+            localfname = args.sensor + "_commandexec.csv"
+            with open(localfname,'wb') as f:
+                f.write(result)
             print()
 
         elif args.regkeypath:
