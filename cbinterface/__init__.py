@@ -94,7 +94,9 @@ def iniArray(inifilepath, iniSection):
             elif boolCollect == True:
                 if "=" in line:
                     valuestart = line.find("=")
-                    listOut.append(line[valuestart +1:-1])
+                    keyValue = line[valuestart +1:]
+
+                    listOut.append(keyValue.replace("\n",""))
         return listOut
 
 ## -- Live Response (collect/remediate) -- ##
@@ -252,6 +254,36 @@ def LR_collection(hyper_lr, args):
     print("[+] Streamline complete")
     return True
 
+def LR_FileRun(lr_session, args):
+
+    lr_analysis_path = args.localpath
+    if not os.path.exists(lr_analysis_path):
+        LOGGER.info("LR package not defined")
+        return None
+    if '/' in lr_analysis_path:
+        lr_filename = lr_analysis_path[lr_analysis_path.rfind('/')+1:]
+    else:
+        lr_filename = lr_analysis_path[lr_analysis_path.rfind('\\')+1:]
+    lr_dirname = lr_filename[:lr_filename.rfind('.')]
+    sensor_dir = args.remotepath
+    if not sensor_dir:
+        LOGGER.info("sensor_dir not defined in configuration. Using C:\\")
+        sensor_dir = "C:\\" # Default
+    print("[+] Dropping file " + lr_filename + " via LR on host..")
+    filedata = None
+    with open(lr_analysis_path, 'rb') as f: 
+        filedata = f.read()
+    try:
+        lr_session.put_file(filedata, sensor_dir + lr_filename)
+    except Exception as e:
+        if 'ERROR_FILE_EXISTS' not in str(e):
+            LOGGER.error("Unknown Error: {}".format(str(e)))
+            return False
+
+    execCommand = "cmd /c start " + sensor_dir + lr_filename 
+    print("[+] Running file via LR ..")
+    lr_session.create_process(execCommand)
+    return True
 
 def Remediation(sensor, args):
     #sensor = cb.select(Sensor).where("hostname:{}".format(args.sensor)).one()
@@ -439,7 +471,7 @@ def sensor_search(profiles, sensor_name):
         handle_proxy(profile)
         cb = CbResponseAPI(profile=profile)
         try:
-            if sensor_name.replace(".","").isnumeric() and sensor_name.count(".") == 4:
+            if sensor_name.replace(".","").isnumeric():
                 sensor = cb.select(Sensor).where("ip:{}".format(sensor_name)).one()
             else:
                 sensor = cb.select(Sensor).where("hostname:{}".format(sensor_name)).one()
@@ -536,7 +568,7 @@ def main():
     #                         help="Warn before printing large executions")
 
     subparsers = parser.add_subparsers(dest='command') #title='subcommands', help='additional help')
-    cbinterface_commands = [ 'query', 'proc', 'collect', 'remediate', 'enumerate_usb', 'vxdetect']
+    cbinterface_commands = [ 'query', 'proc', 'collect', 'remediate', 'enumerate_usb', 'vxdetect', 'file_deploy']
 
     parser_vx = subparsers.add_parser('vxdetect', help="search cbsandbox for processes in vxstream report, show detections")
     parser_vx.add_argument('vxstream_report', help='path to vxstream report')
@@ -546,6 +578,11 @@ def main():
     parser_usb.add_argument('sensor', help='hostname of the sensor')
     parser_usb.add_argument('-s', '--start-time', action='store',
                             help='how far back to query (default:ALL time)')
+
+    parser_fd = subparsers.add_parser('file_deploy', help="Deploy and run a file on the sensor")
+    parser_fd.add_argument('sensor', help='hostname of the sensor')
+    parser_fd.add_argument('localpath', help='local path to file')
+    parser_fd.add_argument('remotepath', help='remote path to folder')
 
     parser_proc = subparsers.add_parser('proc', help="analyze a process GUID. 'proc -h' for more")
     parser_proc.add_argument('process', help="the process GUID to analyze")
@@ -723,7 +760,7 @@ def main():
 
     # Select correct environment by sensor hostname and get the sensor object
     sensor = None
-    if args.command == 'collect' or args.command == 'remediate' or args.command == 'enumerate_usb':
+    if args.command == 'collect' or args.command == 'remediate' or args.command == 'enumerate_usb' or args.command =='file_deploy':
         cb_results = sensor_search(profiles, args.sensor)
         if not isinstance(cb_results, list):
             # an error occured
@@ -747,7 +784,11 @@ def main():
     if args.command == 'enumerate_usb':
         enumerate_usb(sensor, args.start_time)
 
-    
+
+    # Deploy file to sensor
+    if args.command == 'file_deploy':
+        lr_session = go_live(sensor)
+        LR_FileRun(lr_session, args)  
 
     # lerc install arguments can differ by company/environment
     # same lazy hack to define in cb config
