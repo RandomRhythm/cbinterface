@@ -279,8 +279,14 @@ def LR_FileRun(lr_session, args):
         if 'ERROR_FILE_EXISTS' not in str(e):
             LOGGER.error("Unknown Error: {}".format(str(e)))
             return False
-
-    execCommand = "cmd /c start " + sensor_dir + lr_filename 
+    lr_args_path = args.args
+    argline = ""
+    if os.path.exists(lr_args_path):
+      with open(lr_args_path, 'r') as f:
+        argline = f.readline()
+        if argline != "":
+          argline = " " + argline
+    execCommand = "cmd /c start " + sensor_dir + lr_filename + argline
     print("[+] Running file via LR ..")
     lr_session.create_process(execCommand)
     return True
@@ -582,6 +588,7 @@ def main():
     parser_fd = subparsers.add_parser('file_deploy', help="Deploy and run a file on the sensor")
     parser_fd.add_argument('sensor', help='hostname of the sensor')
     parser_fd.add_argument('localpath', help='local path to file')
+    parser_fd.add_argument('args', help='file path to text file with line arguments to pass')
     parser_fd.add_argument('remotepath', help='remote path to folder')
 
     parser_proc = subparsers.add_parser('proc', help="analyze a process GUID. 'proc -h' for more")

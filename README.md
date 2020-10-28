@@ -174,6 +174,20 @@ Remediate an infected host:
     + Deleted C:\Users\fakeuser\Desktop\nanocore
     Mon Oct  9 16:44:02 2017...Done.
 
+#### File Deploy
+
+file_deploy takes four arguments:
+* sensor - sensor name or IP address of the target for file deployment
+* localpath - local file path to deployment file
+* args - local file path to txt file containing the arguments to pass to the deployment file
+* remotepath - remote folder path where to place the deployment file
+
+Deploy a file with arguments:
+
+    cbinterface.py file_deploy ComputerName LocalPathToFileToDeploy LocalPathToTxtContainingArgs RemoteFolderPathToPutDeploymentPackage
+    
+    Example:
+    cbinterface.py file_deploy DESKTOP-06D42O9 c:\Package.exe C:\args.txt c:\Windows\Temp\
 
 ## Installation
 
